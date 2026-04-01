@@ -980,6 +980,9 @@ def clear_dust_positions(session: Session) -> int:
 # ── Tiered Take-Profit ────────────────────────────────────────────────
 _TP_COOLDOWN = 30  # seconds between TP attempts per token
 _tp_last_attempt: dict[str, float] = {}
+# Tokens where TP sell was rejected by CLOB due to min-size constraint.
+# Skipped until bot restart or holdings change (e.g. more shares bought).
+_tp_skip_min_size: set[tuple[int, str]] = {}
 
 
 def _parse_tp_rules(raw: str | None) -> list[dict[str, float]]:
@@ -1151,6 +1154,10 @@ def take_profit_monitor(session: Session) -> int:
         if effective < target:
             continue
 
+        # Skip tokens previously rejected by CLOB min-size constraint
+        if (trader_id, token_id) in _tp_skip_min_size:
+            continue
+
         # Cooldown check
         cooldown_key = f"tp:{trader_id}:{token_id}"
         now_ts = time.monotonic()
@@ -1287,10 +1294,41 @@ def take_profit_monitor(session: Session) -> int:
                 sold += 1
             except Exception as exc:
                 _tp_last_attempt[cooldown_key] = now_ts
-                logger.error(
-                    "take_profit FOK error: trader=%d token=%s: %s",
-                    trader_id, token_id[:16], exc,
-                )
+                exc_str = str(exc).lower()
+                is_min_size = "min" in exc_str and ("size" in exc_str or "order" in exc_str)
+                if is_min_size:
+                    _tp_skip_min_size.add((trader_id, token_id))
+                    logger.warning(
+                        "take_profit skipped (min-size): trader=%d token=%s size=%.4f — "
+                        "will not retry until bot restart or new BUY",
+                        trader_id, token_id[:16], sell_size,
+                    )
+                    fail_record = CopyTrade(
+                        trader_id=trader_id,
+                        original_trade_id=f"tp_sell:{token_id[:24]}",
+                        original_market=sample_buy.original_market if sample_buy else "",
+                        original_token_id=token_id,
+                        market_title=sample_buy.market_title if sample_buy else "",
+                        outcome=sample_buy.outcome if sample_buy else "",
+                        original_side="SELL",
+                        original_size=sell_size,
+                        original_price=sell_price,
+                        original_timestamp=datetime.now(timezone.utc).replace(tzinfo=None),
+                        copy_size=sell_size,
+                        copy_price=sell_price,
+                        status="failed",
+                        order_id=None,
+                        pnl=0.0,
+                        error_message=f"{tp_note} | CLOB min-size rejected: {exc}",
+                        executed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                    )
+                    session.add(fail_record)
+                    session.commit()
+                else:
+                    logger.error(
+                        "take_profit FOK error: trader=%d token=%s: %s",
+                        trader_id, token_id[:16], exc,
+                    )
 
     return sold
 
@@ -1670,4 +1708,9 @@ def execute_copy_trade(
     )
     session.add(copy_trade)
     session.commit()
+
+    # New BUY may push holdings above min-size — allow TP retry
+    if trade["side"] == "BUY" and status in ("success", "dry_run"):
+        _tp_skip_min_size.discard((trader.id, trade["token_id"]))
+
     return copy_trade
