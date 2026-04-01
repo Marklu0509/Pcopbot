@@ -83,6 +83,11 @@ _approved_exchanges: set[str] = set()
 _AUTO_SELL_COOLDOWN = 30
 _auto_sell_last_attempt: dict[str, float] = {}
 
+# Cache of funder wallet token balances (token_id → size).
+# Updated by auto_sell / take_profit each cycle; used by execute_copy_trade
+# to cap dust-closeout sells at actual on-chain balance.
+_funder_sizes_cache: dict[str, float] = {}
+
 
 def _ensure_sell_approval(client, token_id: str) -> None:
     """Ensure the CLOB recognises our token balance and allowance.
@@ -594,6 +599,7 @@ def auto_sell_winning_positions(session: Session, threshold: float | None = None
                 if tid:
                     funder_prices[tid] = p.get("cur_price", 0.0)
                     funder_sizes[tid] = p.get("size", 0.0)
+            _funder_sizes_cache.update(funder_sizes)
         except Exception as exc:
             logger.warning("auto_sell: funder position fetch failed: %s", exc)
             wallet_positions = []
@@ -1084,6 +1090,7 @@ def take_profit_monitor(session: Session) -> int:
                 if tid:
                     funder_prices[tid] = p.get("cur_price", 0.0)
                     funder_sizes[tid] = p.get("size", 0.0)
+            _funder_sizes_cache.update(funder_sizes)
         except Exception as exc:
             logger.warning("take_profit: funder position fetch failed: %s", exc)
 
@@ -1368,6 +1375,16 @@ def execute_copy_trade(
                 holdings,
             )
             copy_size = holdings
+
+        # Cap at actual wallet balance to avoid "not enough balance" errors.
+        # DB holdings can exceed on-chain balance due to 2dp floor rounding.
+        wallet_bal = _funder_sizes_cache.get(trade["token_id"])
+        if wallet_bal is not None and copy_size > wallet_bal > 0:
+            logger.info(
+                "SELL wallet cap for trader %s token %s: DB=%.6f wallet=%.6f",
+                trader.wallet_address, trade["token_id"], copy_size, wallet_bal,
+            )
+            copy_size = wallet_bal
 
     # Determine order type and slippage for this side
     if trade["side"] == "BUY":
