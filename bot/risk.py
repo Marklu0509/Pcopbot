@@ -33,14 +33,22 @@ def check_min_threshold(copy_size: float, trader: Trader) -> Optional[str]:
     return None
 
 
-def check_ignore_trades_under(original_size: float, original_price: float, trader: Trader) -> Optional[str]:
-    """Reject if the target trader's trade USD value is below ignore threshold."""
-    if trader.ignore_trades_under > 0:
+def check_ignore_trades_under(original_size: float, original_price: float, trader: Trader, side: str = "BUY") -> Optional[str]:
+    """Reject if the target trader's trade USD value is below ignore threshold.
+
+    Uses per-side thresholds: ignore_trades_under for BUY, ignore_sells_under for SELL.
+    """
+    threshold = (
+        getattr(trader, "ignore_sells_under", 0.0) or 0.0
+        if side == "SELL"
+        else trader.ignore_trades_under
+    )
+    if threshold > 0:
         trade_value = original_size * original_price
-        if trade_value < trader.ignore_trades_under:
+        if trade_value < threshold:
             logger.info(
-                "Original trade value $%.2f below ignore threshold $%.2f for trader %s",
-                trade_value, trader.ignore_trades_under, trader.wallet_address,
+                "Original %s trade value $%.2f below ignore threshold $%.2f for trader %s",
+                side, trade_value, threshold, trader.wallet_address,
             )
             return STATUS_BELOW_THRESHOLD
     return None
@@ -275,7 +283,7 @@ def cap_and_check(
     cap_price = order_price if order_price is not None else expected_price
 
     # ── Filters that apply to ALL trades (BUY and SELL) ──
-    rejection = check_ignore_trades_under(original_size, original_price, trader)
+    rejection = check_ignore_trades_under(original_size, original_price, trader, side=side)
     if rejection:
         return copy_size, rejection
 

@@ -53,8 +53,9 @@ class Trader(Base):
     # "Below Min Limit, Buy at Min" toggle
     buy_at_min = Column(Boolean, default=True)
 
-    # Ignore target wallet trades under this USD value
-    ignore_trades_under = Column(Float, default=0.0)
+    # Ignore target wallet trades under this USD value (per-side thresholds)
+    ignore_trades_under = Column(Float, default=0.0)    # BUY threshold
+    ignore_sells_under = Column(Float, default=0.0)     # SELL threshold (0 = no filter)
 
     # Fill aggregation: accumulate small fills and trigger when total exceeds threshold
     buy_agg_window_seconds = Column(Integer, default=30)   # 0 = disabled for BUY

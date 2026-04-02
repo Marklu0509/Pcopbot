@@ -694,7 +694,9 @@ def _render_trader_detail(t) -> None:
             tp_rules = _json.dumps(_tp_rules_list) if _tp_rules_list else ""
 
             st.markdown("##### Filters")
-            ignore_trades_under = st.number_input("Ignore Target Wallet Trades Under ($)", value=t.ignore_trades_under, min_value=0.0, key=f"itu_{t.id}")
+            ignore_trades_under = st.number_input("Ignore BUY Trades Under ($)", value=t.ignore_trades_under, min_value=0.0, key=f"itu_{t.id}")
+            _cur_isu = getattr(t, "ignore_sells_under", 0.0) or 0.0
+            ignore_sells_under = st.number_input("Ignore SELL Trades Under ($, 0 = no filter)", value=_cur_isu, min_value=0.0, key=f"isu_{t.id}")
             _cur_buy_agg = getattr(t, "buy_agg_window_seconds", 30) or 0
             buy_agg_window_seconds = st.number_input(
                 "BUY Fill Aggregation Window (seconds, 0 = disabled)",
@@ -793,6 +795,7 @@ def _render_trader_detail(t) -> None:
                         "sl_pct": sl_pct,
                         "tp_rules": tp_rules,
                         "ignore_trades_under": ignore_trades_under,
+                        "ignore_sells_under": ignore_sells_under,
                         "buy_agg_window_seconds": buy_agg_window_seconds,
                         "sell_agg_window_seconds": sell_agg_window_seconds,
                         "min_price": min_price,

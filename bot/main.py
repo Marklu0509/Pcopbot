@@ -384,8 +384,12 @@ def _poll_once(session, fill_buffer: FillBuffer) -> None:
                 continue
 
             # ── Fill aggregation: buffer small fills, execute when threshold crossed ──
-            threshold = t.ignore_trades_under or 0.0
             side = trade["side"]
+            threshold = (
+                (getattr(t, "ignore_sells_under", 0.0) or 0.0)
+                if side == "SELL"
+                else (t.ignore_trades_under or 0.0)
+            )
             agg_window = (
                 getattr(t, "buy_agg_window_seconds", 30) or 0
                 if side == "BUY"

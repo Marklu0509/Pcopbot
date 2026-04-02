@@ -132,7 +132,8 @@ def render() -> None:
         tp_rules = _json.dumps(_tp_rules_list) if _tp_rules_list else ""
 
         st.markdown("##### Filters")
-        ignore_trades_under = st.number_input("Ignore Target Wallet Trades Under ($)", value=0.0, min_value=0.0)
+        ignore_trades_under = st.number_input("Ignore BUY Trades Under ($)", value=0.0, min_value=0.0)
+        ignore_sells_under = st.number_input("Ignore SELL Trades Under ($, 0 = no filter)", value=0.0, min_value=0.0)
         buy_agg_window_seconds = st.number_input(
             "BUY Fill Aggregation Window (seconds, 0 = disabled)",
             value=30, min_value=0, max_value=300, step=5,
@@ -190,6 +191,7 @@ def render() -> None:
                         "sl_pct": sl_pct,
                         "tp_rules": tp_rules,
                         "ignore_trades_under": ignore_trades_under,
+                        "ignore_sells_under": ignore_sells_under,
                         "buy_agg_window_seconds": buy_agg_window_seconds,
                         "sell_agg_window_seconds": sell_agg_window_seconds,
                         "min_price": min_price,
