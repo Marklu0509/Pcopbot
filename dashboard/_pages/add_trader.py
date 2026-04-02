@@ -151,7 +151,8 @@ def render() -> None:
         total_spend_limit = st.number_input("Total Spend Limit ($, 0 = no limit)", value=0.0, min_value=0.0)
         min_per_trade = st.number_input("Min Per Trade ($)", value=0.0, min_value=0.0)
         max_per_yes_no = st.number_input("Max Per Yes/No ($, 0 = no limit)", value=0.0, min_value=0.0)
-        max_per_trade = st.number_input("Max Per Trade ($, 0 = no limit)", value=0.0, min_value=0.0)
+        max_per_trade = st.number_input("Max Per BUY Trade ($, 0 = no limit)", value=0.0, min_value=0.0)
+        max_sell_per_trade = st.number_input("Max Per SELL Trade ($, 0 = no limit)", value=0.0, min_value=0.0)
         max_per_market = st.number_input("Max Per Market ($, 0 = no limit)", value=0.0, min_value=0.0)
         max_position_limit = st.number_input("Max Position Limit ($)", value=500.0, min_value=0.0)
         max_holder_market_number = st.number_input("Max Holder Market Number (0 = no limit)", value=0, min_value=0)
@@ -200,6 +201,7 @@ def render() -> None:
                         "min_per_trade": min_per_trade,
                         "max_per_yes_no": max_per_yes_no,
                         "max_per_trade": max_per_trade,
+                        "max_sell_per_trade": max_sell_per_trade,
                         "max_per_market": max_per_market,
                         "max_position_limit": max_position_limit,
                         "max_holder_market_number": max_holder_market_number,

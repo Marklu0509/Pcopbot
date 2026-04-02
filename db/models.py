@@ -69,7 +69,8 @@ class Trader(Base):
     total_spend_limit = Column(Float, default=0.0)
     min_per_trade = Column(Float, default=0.0)
     max_per_yes_no = Column(Float, default=0.0)
-    max_per_trade = Column(Float, default=0.0)
+    max_per_trade = Column(Float, default=0.0)       # BUY cap
+    max_sell_per_trade = Column(Float, default=0.0)  # SELL cap
     max_per_market = Column(Float, default=0.0)
 
     # Max number of markets with holders

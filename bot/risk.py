@@ -65,18 +65,23 @@ def check_price_filter(price: float, trader: Trader) -> Optional[str]:
     return None
 
 
-def cap_per_trade_limit(copy_size: float, price: float, trader: Trader) -> float:
-    """Cap copy_size so trade value does not exceed max_per_trade.
+def cap_per_trade_limit(copy_size: float, price: float, trader: Trader, side: str = "BUY") -> float:
+    """Cap copy_size so trade value does not exceed max_per_trade / max_sell_per_trade.
 
     Returns the (possibly reduced) copy_size. Does NOT reject.
     min_per_trade rejection is handled separately in run_all_checks.
     """
-    if trader.max_per_trade > 0 and price > 0:
-        max_shares = trader.max_per_trade / price
+    limit = (
+        getattr(trader, "max_sell_per_trade", 0.0) or 0.0
+        if side == "SELL"
+        else trader.max_per_trade
+    )
+    if limit > 0 and price > 0:
+        max_shares = limit / price
         if copy_size > max_shares:
             logger.info(
-                "Capping trade from %.4f to %.4f shares (max $%.2f) for trader %s",
-                copy_size, max_shares, trader.max_per_trade, trader.wallet_address,
+                "Capping %s trade from %.4f to %.4f shares (max $%.2f) for trader %s",
+                side, copy_size, max_shares, limit, trader.wallet_address,
             )
             return max_shares
     return copy_size
@@ -291,14 +296,16 @@ def cap_and_check(
     if rejection:
         return copy_size, rejection
 
-    # ── Buy-side: cap to limits instead of rejecting ──
+    # ── Cap to limits instead of rejecting ──
     pre_cap_size = copy_size
     if side == "BUY":
-        copy_size = cap_per_trade_limit(copy_size, cap_price, trader)
+        copy_size = cap_per_trade_limit(copy_size, cap_price, trader, side="BUY")
         copy_size = cap_total_spend_limit(session, trader, copy_size, cap_price, status_filter=status_filter)
         copy_size = cap_max_per_market(session, trader, market, copy_size, cap_price, status_filter=status_filter)
         copy_size = cap_max_per_yes_no(session, trader, token_id, copy_size, cap_price, status_filter=status_filter)
         copy_size = cap_position_limit(session, trader, token_id, copy_size, cap_price, status_filter=status_filter)
+    elif side == "SELL":
+        copy_size = cap_per_trade_limit(copy_size, cap_price, trader, side="SELL")
     # The post-cap size is the hard ceiling — bumps must not exceed this.
     cap_ceiling = copy_size
     was_capped = copy_size < pre_cap_size

@@ -566,7 +566,8 @@ def _render_trader_detail(t) -> None:
 
     c5, c6, c7, c8 = st.columns(4)
     c5.metric("Total Spend Limit", f"${t.total_spend_limit:.2f}" if t.total_spend_limit else "—")
-    c6.metric("Max / Trade", f"${t.max_per_trade:.2f}" if t.max_per_trade else "—")
+    _mspt = getattr(t, "max_sell_per_trade", 0.0) or 0.0
+    c6.metric("Max / Trade", f"B${t.max_per_trade:.0f} S${_mspt:.0f}" if t.max_per_trade or _mspt else "—")
     c7.metric("Max / Market", f"${t.max_per_market:.2f}" if t.max_per_market else "—")
     _sell_ot = t.sell_order_type or 'market'
     if _sell_ot == "limit":
@@ -721,7 +722,9 @@ def _render_trader_detail(t) -> None:
             total_spend_limit = st.number_input("Total Spend Limit ($, 0 = no limit)", value=t.total_spend_limit, min_value=0.0, key=f"tsl_{t.id}")
             min_per_trade = st.number_input("Min Per Trade ($)", value=t.min_per_trade, min_value=0.0, key=f"mnt_{t.id}")
             max_per_yes_no = st.number_input("Max Per Yes/No ($, 0 = no limit)", value=t.max_per_yes_no, min_value=0.0, key=f"myn_{t.id}")
-            max_per_trade = st.number_input("Max Per Trade ($, 0 = no limit)", value=t.max_per_trade, min_value=0.0, key=f"mxt_{t.id}")
+            max_per_trade = st.number_input("Max Per BUY Trade ($, 0 = no limit)", value=t.max_per_trade, min_value=0.0, key=f"mxt_{t.id}")
+            _cur_mspt = getattr(t, "max_sell_per_trade", 0.0) or 0.0
+            max_sell_per_trade = st.number_input("Max Per SELL Trade ($, 0 = no limit)", value=_cur_mspt, min_value=0.0, key=f"mspt_{t.id}")
             max_per_market = st.number_input("Max Per Market ($, 0 = no limit)", value=t.max_per_market, min_value=0.0, key=f"mxm_{t.id}")
             max_position_limit = st.number_input("Max Position Limit ($)", value=t.max_position_limit, min_value=0.0, key=f"mpl_{t.id}")
             max_holder_market_number = st.number_input("Max Holder Market Number (0 = no limit)", value=t.max_holder_market_number, min_value=0, key=f"mhm_{t.id}")
@@ -804,6 +807,7 @@ def _render_trader_detail(t) -> None:
                         "min_per_trade": min_per_trade,
                         "max_per_yes_no": max_per_yes_no,
                         "max_per_trade": max_per_trade,
+                        "max_sell_per_trade": max_sell_per_trade,
                         "max_per_market": max_per_market,
                         "max_position_limit": max_position_limit,
                         "max_holder_market_number": max_holder_market_number,
