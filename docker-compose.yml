@@ -6,6 +6,33 @@ services:
     env_file: .env
     volumes:
       - db-data:/app/data
+    expose:
+      - "8000"        # Prometheus metrics endpoint (internal only)
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pcopbot-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    expose:
+      - "9090"        # Internal only — accessed via Grafana
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pcopbot-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-changeme}
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - grafana-data:/var/lib/grafana
+    expose:
+      - "3000"        # Internal only — proxied via Nginx at /grafana
+    depends_on:
+      - prometheus
     restart: unless-stopped
 
   dashboard:
@@ -57,3 +84,5 @@ volumes:
   db-data:
   letsencrypt:
   certbot-www:
+  prometheus-data:
+  grafana-data:

@@ -1709,6 +1709,12 @@ def execute_copy_trade(
     session.add(copy_trade)
     session.commit()
 
+    try:
+        from bot.metrics import trades_total
+        trades_total.labels(side=trade["side"], status=status).inc()
+    except Exception:
+        pass
+
     # New BUY may push holdings above min-size — allow TP retry
     if trade["side"] == "BUY" and status in ("success", "dry_run"):
         _tp_skip_min_size.discard((trader.id, trade["token_id"]))

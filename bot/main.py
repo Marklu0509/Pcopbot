@@ -532,6 +532,10 @@ def run() -> None:
     logger.info("Pcopbot starting (DRY_RUN=%s, POLL_INTERVAL=%ss)", settings.DRY_RUN, settings.POLL_INTERVAL_SECONDS)
     init_db()
 
+    from bot.metrics import start_metrics_server
+    start_metrics_server()
+    logger.info("Prometheus metrics available on :8000/metrics")
+
     SessionLocal = get_session_factory()
 
     # Attach DB log handler so logs are visible in the dashboard
@@ -547,12 +551,24 @@ def run() -> None:
     _poll_count = 0
     fill_buffer = FillBuffer()
 
+    from bot.metrics import (
+        active_traders as metric_active_traders,
+        fill_buffer_size,
+        last_poll_timestamp,
+        poll_duration_seconds,
+    )
+
     while _running:
         poll_interval = _get_poll_interval(SessionLocal)
         logger.debug("Poll interval: %ss", poll_interval)
         with SessionLocal() as session:
             try:
-                _poll_once(session, fill_buffer)
+                with poll_duration_seconds.time():
+                    _poll_once(session, fill_buffer)
+                last_poll_timestamp.set(time.time())
+                trader_count = session.query(Trader).filter(Trader.is_active == True).count()
+                metric_active_traders.set(trader_count)
+                fill_buffer_size.set(len(fill_buffer._buffer))
             except Exception as exc:
                 logger.error("Unhandled error in poll loop: %s", exc)
 
