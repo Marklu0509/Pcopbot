@@ -982,7 +982,7 @@ _TP_COOLDOWN = 30  # seconds between TP attempts per token
 _tp_last_attempt: dict[str, float] = {}
 # Tokens where TP sell was rejected by CLOB due to min-size constraint.
 # Skipped until bot restart or holdings change (e.g. more shares bought).
-_tp_skip_min_size: set[tuple[int, str]] = {}
+_tp_skip_min_size: set[tuple[int, str]] = set()
 
 
 def _parse_tp_rules(raw: str | None) -> list[dict[str, float]]:

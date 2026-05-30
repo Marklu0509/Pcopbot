@@ -1,0 +1,51 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]   # Run tests on PRs, but skip deploy
+
+jobs:
+  # ── Stage 1: Test ────────────────────────────────────────────────────────
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pytest
+        run: python -m pytest tests/ -v --tb=short
+
+  # ── Stage 2: Deploy ──────────────────────────────────────────────────────
+  # Only runs on push to main (not on pull requests), and only if tests pass.
+  deploy:
+    name: Deploy to DigitalOcean
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: SSH into Droplet and deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ~/Pcopbot
+            git pull origin main
+            docker compose up -d --build
+            echo "Deploy complete at $(date)"

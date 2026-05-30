@@ -39,6 +39,7 @@ def trader(session):
         min_trade_threshold=5.0,
         max_position_limit=500.0,
         max_slippage=2.0,
+        buy_at_min=False,  # Tests assert rejection; disable auto-bump to min
     )
     session.add(t)
     session.commit()
@@ -255,8 +256,8 @@ class TestRunAllChecks:
         assert result is None
 
     def test_sell_still_checks_ignore_trades_under(self, session, trader):
-        """SELL side should still apply ignore_trades_under filter."""
-        trader.ignore_trades_under = 9999.0
+        """SELL side should still apply ignore_sells_under filter."""
+        trader.ignore_sells_under = 9999.0
         session.commit()
         result = self._call(session, trader, side="SELL")
         assert result == STATUS_BELOW_THRESHOLD

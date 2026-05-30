@@ -368,6 +368,65 @@ def cap_and_check(
     return copy_size, None
 
 
+# ---------------------------------------------------------------------------
+# Backward-compatible aliases for legacy tests
+# The modern API uses cap_* functions that return capped sizes.
+# These wrappers restore the original check_* interface that returns a status.
+# ---------------------------------------------------------------------------
+
+def check_per_trade_limit(
+    copy_size: float, price: float, trader: Trader
+) -> Optional[str]:
+    """Legacy check: return STATUS_BELOW_THRESHOLD if below min, STATUS_POSITION_LIMIT if above max."""
+    trade_value = copy_size * price
+    if trader.min_per_trade > 0 and trade_value < trader.min_per_trade:
+        return STATUS_BELOW_THRESHOLD
+    capped = cap_per_trade_limit(copy_size, price, trader, side="BUY")
+    if capped < copy_size:
+        return STATUS_POSITION_LIMIT
+    return None
+
+
+def check_total_spend_limit(
+    session: Session, trader: Trader, copy_size: float, price: float
+) -> Optional[str]:
+    """Legacy check: return STATUS_POSITION_LIMIT if total spend limit would be exceeded."""
+    capped = cap_total_spend_limit(session, trader, copy_size, price)
+    if capped < copy_size:
+        return STATUS_POSITION_LIMIT
+    return None
+
+
+def check_max_per_market(
+    session: Session, trader: Trader, market: str, copy_size: float, price: float
+) -> Optional[str]:
+    """Legacy check: return STATUS_POSITION_LIMIT if market cap would be exceeded."""
+    capped = cap_max_per_market(session, trader, market, copy_size, price)
+    if capped < copy_size:
+        return STATUS_POSITION_LIMIT
+    return None
+
+
+def check_max_per_yes_no(
+    session: Session, trader: Trader, token_id: str, copy_size: float, price: float
+) -> Optional[str]:
+    """Legacy check: return STATUS_POSITION_LIMIT if yes/no cap would be exceeded."""
+    capped = cap_max_per_yes_no(session, trader, token_id, copy_size, price)
+    if capped < copy_size:
+        return STATUS_POSITION_LIMIT
+    return None
+
+
+def check_position_limit(
+    session: Session, trader: Trader, token_id: str, copy_size: float, price: float
+) -> Optional[str]:
+    """Legacy check: return STATUS_POSITION_LIMIT if net position limit would be exceeded."""
+    capped = cap_position_limit(session, trader, token_id, copy_size, price)
+    if capped < copy_size:
+        return STATUS_POSITION_LIMIT
+    return None
+
+
 # Keep backward-compatible alias
 def run_all_checks(
     session: Session,

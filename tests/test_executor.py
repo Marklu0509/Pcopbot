@@ -31,6 +31,7 @@ def trader(session):
         max_position_limit=1000.0,
         max_slippage=5.0,
         dry_run=False,
+        buy_at_min=False,  # Tests assert rejection; disable auto-bump to min
     )
     session.add(t)
     session.commit()
@@ -127,12 +128,13 @@ class TestLiveExecution:
         mock_resp = {"orderID": "order-999"}
         mock_signed_order = MagicMock()
         mock_clob = MagicMock()
-        mock_clob.create_order.return_value = mock_signed_order
+        # BUY orders use create_market_order (FOK market orders)
+        mock_clob.create_market_order.return_value = mock_signed_order
         mock_clob.post_order.return_value = mock_resp
 
         with patch("bot.executor.settings") as mock_settings, \
              patch("bot.executor._get_clob_client", return_value=mock_clob), \
-             patch("py_clob_client.clob_types.OrderArgs", MagicMock()), \
+             patch("py_clob_client.clob_types.MarketOrderArgs", MagicMock()), \
              patch("py_clob_client.clob_types.OrderType", MagicMock()), \
              patch("py_clob_client.order_builder.constants.BUY", "BUY"), \
              patch("py_clob_client.order_builder.constants.SELL", "SELL"):
@@ -141,7 +143,7 @@ class TestLiveExecution:
 
         assert ct.status == "success"
         assert ct.order_id == "order-999"
-        mock_clob.create_order.assert_called_once()
+        mock_clob.create_market_order.assert_called_once()
         mock_clob.post_order.assert_called_once()
 
 

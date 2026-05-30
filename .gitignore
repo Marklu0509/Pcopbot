@@ -37,9 +37,13 @@ htmlcov/
 
 # Docker
 *.override.yml
+
+# Claude / AI tooling (local only)
 CLAUDE.md
+.claude/
 .claudecode/
 .everything-claude-code/
+.observer.lock
 
 # Local-only scripts
 scripts/analyze_trader.py
