@@ -49,5 +49,6 @@ jobs:
             cd ~/Pcopbot
             git pull origin main
             docker compose up -d --build --remove-orphans
+            docker compose restart nginx
             docker compose ps
             echo "Deploy complete at $(date)"
