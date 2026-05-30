@@ -43,7 +43,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 5m
+          command_timeout: 15m
           script: |
             set -e
             cd ~/Pcopbot
