@@ -43,9 +43,11 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
           script: |
             set -e
             cd ~/Pcopbot
             git pull origin main
-            docker compose up -d --build
+            docker compose up -d --build --remove-orphans
+            docker compose ps
             echo "Deploy complete at $(date)"
