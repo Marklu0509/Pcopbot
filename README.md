@@ -128,7 +128,7 @@ Infrastructure and credentials are set via environment variables; per-account be
 | `POLYMARKET_API_KEY` / `_SECRET` / `_PASSPHRASE` | Yes | — | Exchange API credentials |
 | `POLYMARKET_FUNDER_ADDRESS` | Yes | — | Address holding funds and tokens |
 | `DATABASE_URL` | No | `sqlite:///./data/pcopbot.db` | SQLAlchemy database URL |
-| `POLL_INTERVAL_SECONDS` | No | `15` | Seconds between poll cycles |
+| `POLL_INTERVAL_SECONDS` | No | `0.5` | Seconds between poll cycles |
 | `DRY_RUN` | No | `true` | Global dry-run switch — `false` to act live |
 | `DASHBOARD_PASSWORD` | No | — | Dashboard login password |
 | `DOMAIN` | No | — | Domain for Nginx TLS certificate |

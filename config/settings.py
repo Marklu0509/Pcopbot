@@ -68,7 +68,7 @@ POLYMARKET_CHAIN_ID: int = _get_int("POLYMARKET_CHAIN_ID", 137)
 DATABASE_URL: str = _get("DATABASE_URL", "sqlite:///./data/pcopbot.db")
 
 # Bot
-POLL_INTERVAL_SECONDS: float = _get_float("POLL_INTERVAL_SECONDS", 15.0)
+POLL_INTERVAL_SECONDS: float = _get_float("POLL_INTERVAL_SECONDS", 0.5)
 DRY_RUN: bool = _get_bool("DRY_RUN", True)
 # Auto-sell threshold: the price to post FOK SELL at.
 # When any price source >= 0.95, bot attempts FOK SELL at this price.
