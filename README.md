@@ -25,7 +25,7 @@ Polymarket public feed  ──poll──▶  Rules engine (cap → reject)  ─�
 ```
 
 1. **Track** — register any number of accounts to follow, each with its own rules.
-2. **Poll** — read the public feed every few seconds for new activity.
+2. **Poll** — read the public feed continuously (multiple times a second) for new activity.
 3. **Filter & size** — pass each candidate through a rules engine that resizes it to fit your configured limits, or skips it.
 4. **Act** — submit the request through the exchange (CLOB) API.
 5. **Manage** — apply rule-based exits and trigger on-chain settlement once a market resolves.
@@ -46,7 +46,7 @@ The domain is really just the test case. The work went into the engineering unde
 - **Event aggregation** that batches fragmented sub-events into one
 - **Automated lifecycle management** — rule-based exits and on-chain settlement
 - **Web dashboard** for live monitoring and runtime configuration (no redeploys)
-- **Metrics & monitoring** via Prometheus + Grafana
+- **Metrics, monitoring & alerting** via Prometheus + Grafana (with Discord alerts), all provisioned as code
 - **Containerized** — one command to bring up the whole stack
 - **CI/CD** — tests run and the service redeploys itself on every push
 
@@ -59,7 +59,7 @@ The domain is really just the test case. The work went into the engineering unde
 | **Frontend** | Streamlit, Plotly |
 | **Infra** | Docker Compose, Nginx (reverse proxy, TLS, rate limiting), Let's Encrypt |
 | **CI/CD** | GitHub Actions (test → auto-deploy via SSH) |
-| **Observability** | Prometheus, Grafana |
+| **Observability** | Prometheus, Grafana (dashboards + alerting, provisioned as code) |
 | **Testing** | pytest (85 tests) |
 
 ## Getting started
@@ -133,6 +133,7 @@ Infrastructure and credentials are set via environment variables; per-account be
 | `DASHBOARD_PASSWORD` | No | — | Dashboard login password |
 | `DOMAIN` | No | — | Domain for Nginx TLS certificate |
 | `GRAFANA_PASSWORD` | No | `changeme` | Grafana admin password |
+| `DISCORD_WEBHOOK_URL` | No | — | Discord webhook for liveness alerts |
 
 Full list in [config/settings.py](config/settings.py).
 
@@ -163,7 +164,9 @@ A few of the more interesting problems this project solves:
 
 - **Push-to-deploy** — every push to `main` runs the full test suite on GitHub Actions; if it passes, it connects to the host, pulls the new code, and rebuilds the containers. No manual steps, no "works on my machine" drift.
 
-- **Knowing it's healthy without watching it** — the service exports its own metrics (throughput by outcome, poll-latency histograms, a last-seen-alive timestamp) to Prometheus and Grafana, so one dashboard answers "is it running right now?" — no log-tailing required.
+- **Knowing it's healthy without watching it** — the service exports its own metrics (throughput by outcome, poll-latency histograms, a last-seen-alive timestamp) to Prometheus and Grafana, so one dashboard answers "is it running right now?" — no log-tailing required. A Grafana alert pings a Discord channel if the service goes quiet, so a stall surfaces on its own instead of being noticed hours later.
+
+- **Monitoring defined as code** — the Grafana data source, dashboard, alert rules, and notification routing all live in version-controlled config files under `grafana/provisioning/`. A fresh deploy rebuilds the entire monitoring setup automatically — no clicking through a UI to wire it back up.
 
 ## Project structure
 
@@ -183,7 +186,7 @@ db/              SQLAlchemy models + session factory
 dashboard/       Streamlit multi-page UI (password-gated)
 scripts/         Maintenance utilities (run as python -m scripts.<name>)
 nginx/           Reverse proxy: TLS, rate limiting, security headers
-grafana/         Pre-built monitoring dashboard + provisioning
+grafana/         Dashboard, data source, and alert rules — all provisioned as code
 tests/           pytest suite (85 tests)
 ```
 
