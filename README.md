@@ -1,225 +1,144 @@
 # Pcopbot
 
-Polymarket copy-trading bot that automatically mirrors trades from tracked wallets with configurable sizing, full risk management, auto-redemption, and a real-time Streamlit dashboard.
+An **event-driven processing system** that consumes a high-throughput public data stream, replicates actions through a downstream API under a configurable policy engine, and manages the full lifecycle of each resulting entity — built to practice fault-tolerant streaming, idempotent processing, and production observability on real-world data.
 
-## Features
+It runs 24/7 on a DigitalOcean droplet with automated CI/CD and full metrics-based monitoring.
 
-- **Copy Trading** — polls the Polymarket Data API for new trades from tracked wallets and replicates them via the CLOB API
-- **Flexible Sizing** — fixed dollar budget (auto-converted to shares) or proportional to the original trade size
-- **Risk Management** — 9 configurable checks: per-trade limits, total spend caps, per-market/outcome caps, position limits, price filters, slippage checks
-- **Buy at Min** — when a capped or proportional trade falls below `min_per_trade`, optionally bump it up to the minimum instead of rejecting
-- **Fill Aggregation** — accumulates fragmented fills in a sliding-window buffer and executes once the combined value crosses `ignore_trades_under`
-- **Tiered Take-Profit** — per-trader JSON rules map entry price ranges to custom exit targets (e.g. buy ≤ 0.30 → sell at 0.80)
-- **Auto-Sell** — automatically sells positions when price reaches threshold (default $0.999)
-- **Auto-Redemption** — redeems winning tokens on-chain when markets resolve (gasless via Relayer API)
-- **Loss Detection** — records expired losing positions, manual redemptions, and OTC sells
-- **PnL Tracking** — realized + unrealized PnL with per-trader breakdown, win rate, and ROI
-- **Watermarking** — per-trader timestamp tracking to prevent duplicate trades
-- **Per-Trader Dry Run** — each trader can trade live or simulate independently; global override available
-- **Dashboard** — password-protected Streamlit UI with live portfolio metrics
-- **Production-Ready** — Docker Compose deployment with Nginx SSL, rate limiting, and security headers
+![CI/CD](https://github.com/Marklu0509/Pcopbot/actions/workflows/deploy.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![Tests](https://img.shields.io/badge/tests-85%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-## Quick Start
+---
 
-### Prerequisites
+## Why this project
 
-- Python 3.11+
-- Polymarket API credentials ([get them here](https://docs.polymarket.com))
-- A funded wallet on Polygon
+[Polymarket](https://polymarket.com) exposes a **public, real-time, append-only event stream** (every action by every account) plus an order-placement API and an on-chain settlement layer. That combination makes it an ideal substrate for building and stress-testing a production data pipeline against messy, high-volume real-world data — fragmented events, API rate limits, floating-point precision constraints, eventual consistency, and failures that happen at 3 a.m. whether you're watching or not.
 
-### Local Development
+The domain (mirroring selected accounts' actions on prediction markets) is secondary; the focus is the **engineering**: ingesting an event stream exactly once, shaping outputs through a constraint engine, reconciling state against an external source of truth, and keeping the whole thing observable and self-deploying.
+
+## What it does
+
+The system tracks a set of accounts, polls a public API for their new actions, and replicates each one through an order API under per-account sizing and constraint policies. It then drives each resulting entity through its lifecycle — entry, conditional exit, and on-chain settlement once the underlying event resolves — and reconciles outcomes back into a dashboard.
+
+```
+Public event stream  ──poll──▶  Constraint engine (cap → reject)  ──▶  Order execution API
+                                          │                                   │
+                                  Event aggregation                   Entity lifecycle
+                                  (sliding window)              (conditional exit, settlement)
+                                          │                                   │
+                                          └──────────▶  SQLite/Postgres  ◀─────┘
+                                                              │
+                                       Streamlit dashboard + Prometheus metrics
+```
+
+## Tech stack
+
+| Layer | Technologies |
+|-------|--------------|
+| **Core** | Python 3.11, SQLAlchemy 2.0 (ORM), Web3.py |
+| **Data** | SQLite (dev) / PostgreSQL (prod) |
+| **Frontend** | Streamlit, Plotly |
+| **Infra** | Docker Compose, Nginx (reverse proxy, TLS, rate limiting), Let's Encrypt |
+| **CI/CD** | GitHub Actions (test → auto-deploy via SSH) |
+| **Observability** | Prometheus, Grafana |
+| **Testing** | pytest (85 tests) |
+
+## Engineering highlights
+
+The design decisions worth talking through in an interview:
+
+- **Exactly-once stream processing** — a per-account timestamp *watermark* advances only after an event is fully processed, so no event is duplicated or lost across restarts. The system deliberately chooses *at-most-once* over *at-least-once* semantics, because in this domain a duplicated action is more expensive to recover from than a skipped one — a classic delivery-guarantee trade-off made explicit.
+
+- **Policy-based constraint engine** — rather than a binary pass/fail filter, `cap_and_check()` first *shapes* each output to fit five exposure limits (per-action, cumulative, per-market, per-outcome, net-position), and only rejects when it still violates a price filter or a hard minimum. Shaping-before-rejecting keeps far more events actionable while staying within configured bounds.
+
+- **Sliding-window event aggregation** — upstream actions arrive fragmented into many sub-events. `FillBuffer` accumulates them in a time-bounded window and emits a single aggregated output once their combined magnitude crosses a threshold, using volume-weighted averaging — collapsing dozens of tiny downstream calls into one.
+
+- **Deterministic numeric handling** — the downstream API rejects values exceeding 2 decimal places. Output sizing uses integer truncation (`floor(x * 100) / 100`) instead of `round()` to satisfy the constraint deterministically. *Root-caused in production by instrumenting the failing path with structured logging* rather than guessing.
+
+- **Zero-touch deployment** — every push to `main` runs the full test suite on GitHub Actions and, if green, SSHes into the droplet to pull and rebuild containers. No manual deploy steps, no drift between repo and server.
+
+- **Production observability** — the daemon exports Prometheus metrics (throughput by outcome, poll-latency histograms, a liveness timestamp) rendered in a Grafana dashboard, so "is it actually healthy right now?" is answerable at a glance instead of by tailing logs.
+
+## Quick start
 
 ```bash
-# 1. Clone and install
-git clone https://github.com/your-username/Pcopbot.git
+# Local development (dry-run mode by default — no live actions are sent)
+git clone https://github.com/Marklu0509/Pcopbot.git
 cd Pcopbot
 pip install -r requirements.txt
+cp .env.example .env          # add your API credentials
+python -m bot.main            # start the daemon
+streamlit run dashboard/app.py  # dashboard, separate terminal
 
-# 2. Configure environment
-cp .env.example .env
-# Edit .env with your Polymarket credentials
-
-# 3. Run the bot (dry-run mode by default)
-python -m bot.main
-
-# 4. Launch the dashboard (separate terminal)
-streamlit run dashboard/app.py
-```
-
-### Production Deployment (Docker)
-
-```bash
-# 1. Configure environment
-cp .env.example .env
-cp .env.dashboard.example .env.dashboard
-# Edit both files — set credentials, DASHBOARD_PASSWORD, and DOMAIN
-
-# 2. Build and start all services
-docker compose up -d --build
-
-# 3. Obtain SSL certificate (first time only)
-docker compose run --rm certbot certonly \
-  --webroot -w /var/www/certbot \
-  -d your-domain.com \
-  --agree-tos --no-eff-email -m your@email.com
-
-# 4. Restart nginx to load the certificate
-docker compose restart nginx
-
-# Dashboard available at https://your-domain.com
-```
-
-### Common Operations
-
-```bash
-# View bot logs
-docker compose logs -f bot
-
-# Restart after code changes
-git pull && docker compose up -d --build && docker compose restart nginx
-
-# Run tests
+# Run the test suite
 python -m pytest tests/ -v
-
-# Backfill fill prices from wallet activity
-python -m scripts.refresh_prices
-
-# Recalculate historical PnL
-python -m scripts.fix_historical_pnl
 ```
 
-## Dashboard Pages
+```bash
+# Production (Docker Compose: daemon + dashboard + nginx + prometheus + grafana)
+docker compose up -d --build
+```
 
-| Page | Description |
-|------|-------------|
-| **Traders** | Per-trader settings, current positions, copy-trade holdings, realized PnL history |
-| **Add Trader** | Add a new wallet address to track |
-| **History** | Filterable trade history across all traders with pagination |
-| **PnL** | Overall and per-trader PnL summary with cumulative chart |
-| **Logs** | Real-time bot log viewer with level filtering |
-| **Settings** | Poll interval, dry run toggle, auto-sell toggle, log level |
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical deep-dive, and the
+[Configuration](#configuration) section below for all tunable parameters.
+
+## Project structure
+
+```
+bot/             Core processing logic
+  main.py          Daemon poll loop, state reconciliation, lifecycle transitions
+  tracker.py       Ingests events & entity state from the public API
+  executor.py      Output execution, conditional exits, tiered exit rules
+  risk.py          Cap-then-reject constraint engine (exposure caps + filters)
+  fill_buffer.py   Sliding-window aggregation for fragmented events
+  redeemer.py      On-chain settlement + reconciliation of out-of-band actions
+  watermark.py     Per-account watermark (exactly-once processing)
+  metrics.py       Prometheus metrics
+
+config/          Environment-based settings loader
+db/              SQLAlchemy models + session factory
+dashboard/       Streamlit multi-page UI (password-gated)
+scripts/         Maintenance utilities (run as python -m scripts.<name>)
+nginx/           Reverse proxy: TLS, rate limiting, security headers
+grafana/         Pre-built monitoring dashboard
+tests/           pytest suite (85 tests)
+```
 
 ## Configuration
 
-### Environment Variables
+Configured through environment variables (credentials, infra) and per-account settings
+adjustable live from the dashboard (sizing, constraint limits, exit rules).
 
-<!-- AUTO-GENERATED: derived from config/settings.py -->
+<details>
+<summary><strong>Key environment variables</strong></summary>
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `POLYMARKET_PRIVATE_KEY` | Yes | — | Proxy wallet private key for CLOB signing |
-| `POLYMARKET_API_KEY` | Yes | — | CLOB API key |
-| `POLYMARKET_API_SECRET` | Yes | — | CLOB API secret |
-| `POLYMARKET_API_PASSPHRASE` | Yes | — | CLOB API passphrase |
-| `POLYMARKET_FUNDER_ADDRESS` | Yes | — | Funder wallet address that holds funds and tokens |
-| `POLYMARKET_FUNDER_PRIVATE_KEY` | No | — | Funder wallet key for on-chain redemptions (Gnosis Safe setups only; omit if proxy key IS the funder key) |
-| `POLYMARKET_RELAYER_API_KEY` | No | — | Relayer API key for gasless Safe transactions (also accepted as `RELAYER_API_KEY`) |
-| `RELAYER_API_KEY_ADDRESS` | No | — | Address that owns the Relayer API key (also accepted as `POLYMARKET_RELAYER_API_KEY_ADDRESS`) |
-| `POLYMARKET_CHAIN_ID` | No | `137` | Polygon chain ID |
+| `POLYMARKET_PRIVATE_KEY` | Yes | — | Wallet key for signing order-API requests |
+| `POLYMARKET_API_KEY` / `_SECRET` / `_PASSPHRASE` | Yes | — | Order API credentials |
+| `POLYMARKET_FUNDER_ADDRESS` | Yes | — | Address holding funds and tokens |
 | `DATABASE_URL` | No | `sqlite:///./data/pcopbot.db` | SQLAlchemy database URL |
-| `POLL_INTERVAL_SECONDS` | No | `15` | Seconds between poll cycles (overridable at runtime via dashboard) |
-| `DRY_RUN` | No | `true` | Global dry-run override — set to `false` for live trading |
-| `AUTO_SELL_THRESHOLD` | No | `0.999` | Price threshold for auto-selling (set to `0` to disable) |
-| `LOG_LEVEL` | No | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `DASHBOARD_PASSWORD` | No | — | Dashboard login password (empty = no auth) |
-| `DOMAIN` | No | — | Domain name for nginx SSL certificate |
-| `POLYGON_RPC_URL` | No | `https://polygon-rpc.com` | Polygon RPC endpoint for on-chain transactions |
+| `POLL_INTERVAL_SECONDS` | No | `15` | Seconds between poll cycles |
+| `DRY_RUN` | No | `true` | Global dry-run override — `false` to send live actions |
+| `DASHBOARD_PASSWORD` | No | — | Dashboard login password |
+| `DOMAIN` | No | — | Domain for nginx TLS certificate |
+| `GRAFANA_PASSWORD` | No | `changeme` | Grafana admin password |
 
-### Per-Trader Settings (via Dashboard)
+Full list in [config/settings.py](config/settings.py).
 
-<!-- AUTO-GENERATED: derived from db/models.py Trader columns -->
+</details>
 
-| Setting | DB Column | Description |
-|---------|-----------|-------------|
-| Dry Run | `dry_run` | Per-trader simulate mode; global `DRY_RUN` env overrides all |
-| Sizing Mode | `sizing_mode` | `fixed` (dollar budget) or `proportional` (% of original) |
-| Fixed Amount ($) | `fixed_amount` | Dollar amount per copy trade (fixed mode) |
-| Copy Percentage (%) | `proportional_pct` | Percentage of original trade size (proportional mode) |
-| Sell Only | `sell_only` | Only copy SELL trades, skip BUY |
-| Buy Order Type | `buy_order_type` | `market` (FOK via `MarketOrderArgs`) or `limit` (GTC via `OrderArgs`) |
-| Sell Order Type | `sell_order_type` | `market` (FOK) or `limit` (GTC) |
-| Buy Slippage (%) | `buy_slippage` | Max slippage tolerance for FOK BUY orders |
-| Sell Slippage (%) | `sell_slippage` | Max slippage tolerance for FOK SELL orders |
-| Buy Price Offset (%) | `buy_price_offset_pct` | Limit order ceiling: `trader_price * (1 + offset/100)` |
-| Sell Price Offset (%) | `sell_price_offset_pct` | Limit order floor: `trader_price * (1 - offset/100)` |
-| Limit Timeout (s) | `limit_timeout_seconds` | GTC order timeout before cancellation |
-| Buy Limit Fallback | `buy_limit_fallback` | Retry as FOK if GTC BUY times out |
-| Sell Limit Fallback | `sell_limit_fallback` | Retry as FOK if GTC SELL times out |
-| Buy Agg Window (s) | `buy_agg_window_seconds` | Sliding window for BUY fill aggregation (0 = disabled) |
-| Sell Agg Window (s) | `sell_agg_window_seconds` | Sliding window for SELL fill aggregation (0 = disabled) |
-| Tiered TP Rules | `tp_rules` | JSON array `[{"max_entry": 0.30, "target": 0.80}, ...]` — sell when price hits target for the entry bracket |
-| Take-Profit % | `tp_pct` | Simple take-profit percentage (fallback when `tp_rules` not set) |
-| Stop-Loss % | `sl_pct` | Stop-loss percentage (0 = disabled) |
-| Ignore Trades Under ($) | `ignore_trades_under` | Skip fills below this USD value; combined with aggregation window to merge fragmented fills |
-| Buy at Min | `buy_at_min` | When capped/proportional trade falls below `min_per_trade`, bump up to minimum instead of rejecting |
-| Min / Max Price | `min_price` / `max_price` | Only copy trades within this price range |
-| Min Per Trade ($) | `min_per_trade` | Reject (or bump with `buy_at_min`) trades below this after capping |
-| Max Per Trade ($) | `max_per_trade` | Cap individual trade size to this dollar limit |
-| Total Spend Limit ($) | `total_spend_limit` | Maximum cumulative BUY spend across all trades |
-| Max Per Market ($) | `max_per_market` | Maximum BUY exposure per market (condition_id) |
-| Max Per Yes/No ($) | `max_per_yes_no` | Maximum BUY exposure per outcome (token_id) |
-| Max Position Limit ($) | `max_position_limit` | Maximum net position per token |
-| Max Holder Markets | `max_holder_market_number` | Maximum number of markets with open positions (0 = unlimited) |
+<details>
+<summary><strong>Per-account constraint & sizing settings</strong></summary>
 
-## Project Structure
+Each tracked account has independent settings: sizing mode (fixed / proportional),
+per-action and cumulative caps, per-market / per-outcome / net-position limits, value bands,
+tolerance thresholds, tiered exit rules (`[{"max_entry": 0.30, "target": 0.80}]`),
+event-aggregation windows, and a per-account dry-run toggle. Defined on the `Trader` model in
+[db/models.py](db/models.py) and editable from the dashboard.
 
-<!-- AUTO-GENERATED: derived from repository structure -->
-
-```
-bot/                 Core trading logic
-  main.py              Daemon entry point (poll loop, fill aggregation, PnL updates,
-                       auto-sell, tiered TP, auto-redeem)
-  tracker.py           Fetches trades & positions from Polymarket APIs
-  executor.py          Executes copy trades, auto_sell_winning_positions(),
-                       take_profit_monitor() with tiered TP rules
-  fill_buffer.py       FillBuffer — sliding-window aggregation for fragmented fills
-  risk.py              9 pre-trade risk checks (cap + reject); buy_at_min bump logic
-  redeemer.py          On-chain redemption, loss detection, manual trade sync
-  watermark.py         Per-trader watermark management
-
-config/              Configuration
-  settings.py          Environment-based settings loader (python-dotenv)
-
-db/                  Database layer
-  models.py            SQLAlchemy ORM: Trader, CopyTrade, Position, BotLog, BotSetting
-  database.py          Engine and session factory
-
-dashboard/           Streamlit web UI
-  app.py               Multi-page entry point with timing-safe password auth gate
-  _pages/              Page modules: traders, add_trader, history, pnl, logs,
-                       settings, wallet
-
-scripts/             Maintenance utilities (python -m scripts.<name>)
-  refresh_prices.py       Backfill fill prices from wallet activity
-  fix_historical_pnl.py   Recalculate all PnL records
-  check_approval.py       Verify on-chain ERC-1155 approvals
-  diagnose_sizing.py      Debug copy-trade sizing calculations
-  diagnose_pnl.py         Debug PnL discrepancies
-  analyze_trader.py       Inspect a specific trader's trade history
-  cleanup_duplicate_sells.py  Remove duplicate SELL records
-
-nginx/               Reverse proxy configuration
-  nginx.conf           SSL + rate limiting + security headers
-  http-only.conf       HTTP-only fallback (no SSL)
-  entrypoint.sh        Auto-selects SSL or HTTP config at container start
-
-tests/               Pytest test suite
-  test_executor.py     Order execution, auto-sell, tiered TP tests
-  test_risk.py         Risk check tests (cap, reject, buy_at_min)
-  test_tracker.py      API parsing and watermark tests
-  test_watermark.py    Watermark advancement tests
-```
-
-## Architecture
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a comprehensive technical deep-dive covering:
-- System architecture and data flow
-- Trade execution pipeline
-- Risk management algorithms
-- Auto-sell price discovery
-- On-chain redemption via Gnosis Safe + Relayer
-- PnL calculation methodology
-- Watermark and de-duplication strategy
+</details>
 
 ## License
 
