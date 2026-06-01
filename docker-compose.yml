@@ -29,8 +29,10 @@ services:
       - GF_SERVER_DOMAIN=${DOMAIN}
       - GF_SERVER_ROOT_URL=https://${DOMAIN}/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
     expose:
       - "3000"        # Internal only — proxied via Nginx at /grafana
     depends_on:

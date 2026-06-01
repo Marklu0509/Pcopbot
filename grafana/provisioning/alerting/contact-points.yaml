@@ -1,0 +1,16 @@
+apiVersion: 1
+
+# Where firing alerts are delivered. The Discord webhook URL is injected
+# from the DISCORD_WEBHOOK_URL environment variable (never hard-coded).
+contactPoints:
+  - orgId: 1
+    name: discord
+    receivers:
+      - uid: discord_bot_alerts
+        type: discord
+        settings:
+          url: $__env{DISCORD_WEBHOOK_URL}
+          message: |
+            {{ range .Alerts }}**{{ .Labels.alertname }}** — {{ .Status }}
+            {{ .Annotations.summary }}
+            {{ end }}

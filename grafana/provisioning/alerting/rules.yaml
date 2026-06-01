@@ -1,0 +1,47 @@
+apiVersion: 1
+
+# Alert rule: the bot is considered unhealthy if it hasn't completed a poll
+# cycle recently. pcopbot_last_poll_timestamp_seconds is refreshed on every
+# successful poll, so (now - that value) is "seconds since last poll".
+groups:
+  - orgId: 1
+    name: pcopbot-health
+    folder: Pcopbot Alerts
+    interval: 1m            # evaluate the rule every minute
+    rules:
+      - uid: bot-not-polling
+        title: Bot not polling
+        condition: C
+        # If the metric series disappears entirely (container crashed), treat
+        # it as firing rather than silently ignoring it.
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 2m             # condition must hold for 2 min before firing
+        annotations:
+          summary: >-
+            Pcopbot has not completed a poll cycle in over 90 seconds — the
+            daemon may be stuck, crashed, or unable to reach the upstream API.
+        labels:
+          severity: critical
+        data:
+          # A: seconds since the last successful poll
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: time() - pcopbot_last_poll_timestamp_seconds
+          # C: fire when A exceeds 90 seconds
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [90]

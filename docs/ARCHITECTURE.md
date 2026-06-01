@@ -1,8 +1,10 @@
 # Architecture & Technical Deep-Dive
 
-<!-- AUTO-GENERATED sections marked inline — Last updated 2026-03-30 -->
+This document covers the full system architecture, algorithms, and design decisions in Pcopbot — a 24/7 service that consumes a live public data feed, replicates selected actions through an exchange API under a configurable rules engine, and manages each resulting position through to settlement.
 
-This document covers the full system architecture, algorithms, and design decisions in Pcopbot. Intended as a technical reference for interviews and onboarding.
+The trading domain is the test case; the engineering is the point. Read this as a tour of how the system stays correct (exactly-once processing), stays within bounds (the constraint engine), recovers from failure (watermarks and reconciliation), and stays observable (metrics, alerting, self-deployment) under messy real-world conditions.
+
+The deep-dive sections below use concrete domain vocabulary (trade, position, fill, PnL) for precision. For the high-level framing, start with the [README](../README.md).
 
 ---
 
@@ -38,10 +40,12 @@ This document covers the full system architecture, algorithms, and design decisi
 | Language | Python 3.11 |
 | Trading | py-clob-client (Polymarket CLOB) |
 | Blockchain | Web3.py (Polygon RPC) |
-| Database | SQLAlchemy + SQLite |
+| Database | SQLAlchemy + SQLite (dev) / PostgreSQL (prod) |
 | Dashboard | Streamlit (multi-page) |
 | Proxy | Nginx (SSL, rate limiting) |
 | Deployment | Docker Compose |
+| CI/CD | GitHub Actions (test → SSH auto-deploy) |
+| Observability | Prometheus + Grafana (metrics, alerting) |
 | Certificates | Let's Encrypt / Certbot |
 
 ### Core Components
@@ -749,17 +753,19 @@ key (PK), value, updated_at
 ### Docker Compose Services
 
 ```yaml
-bot:        python -m bot.main          # Trading daemon
-dashboard:  streamlit run dashboard/app.py  # Web UI (port 8501)
-nginx:      nginx:alpine                # Reverse proxy (ports 80, 443)
-certbot:    certbot/certbot             # SSL certificate management
+bot:         python -m bot.main             # Trading daemon (+ :8000 metrics)
+dashboard:   streamlit run dashboard/app.py # Web UI (port 8501)
+nginx:       nginx:alpine                   # Reverse proxy (ports 80, 443)
+certbot:     certbot/certbot                # SSL certificate management
+prometheus:  prom/prometheus                # Scrapes bot metrics every 15s
+grafana:     grafana/grafana                # Dashboards + alerting (/grafana)
 ```
 
 ### Nginx Security
 
 | Feature | Configuration |
 |---------|--------------|
-| Rate Limiting | 5 requests/min per IP on login (burst 3) |
+| Rate Limiting | 30 requests/s per IP (burst 50, `429` on excess) |
 | HSTS | `max-age=31536000; includeSubDomains` |
 | Clickjacking | `X-Frame-Options: DENY` |
 | MIME Sniffing | `X-Content-Type-Options: nosniff` |
@@ -782,6 +788,34 @@ The dashboard container never sees private keys or API secrets.
 - No hardcoded secrets in source code
 - API keys redacted in error messages
 - Log output sanitized (no credential leakage)
+
+### CI/CD Pipeline
+
+A single GitHub Actions workflow (`.github/workflows/deploy.yml`) gates every push to `main`:
+
+1. **Test** — installs dependencies and runs the full `pytest` suite. Pull requests stop here.
+2. **Deploy** — only on push to `main`, and only if tests pass: SSHes into the droplet, pulls the new code, and rebuilds containers with `docker compose up -d --build`.
+
+Secrets (`DROPLET_HOST`, `DROPLET_USER`, `SSH_PRIVATE_KEY`) live in GitHub Actions secrets, never in the repo. The result is no manual deploy steps and no drift between the repository and the running server.
+
+### Observability & Alerting
+
+The daemon starts a Prometheus metrics endpoint on `:8000` at boot (`bot/metrics.py`) and records:
+
+| Metric | Type | Meaning |
+|--------|------|---------|
+| `pcopbot_trades_total{side,status}` | Counter | Trades processed, by side and outcome |
+| `pcopbot_poll_duration_seconds` | Histogram | Latency of each poll cycle |
+| `pcopbot_active_traders` | Gauge | Accounts currently tracked |
+| `pcopbot_last_poll_timestamp_seconds` | Gauge | Unix time of the last completed poll (liveness) |
+| `pcopbot_fill_buffer_size` | Gauge | Token slots currently buffering fills |
+
+Prometheus scrapes these every 15s; Grafana renders them in a provisioned dashboard
+(`grafana/pcopbot-dashboard.json`) and evaluates a **liveness alert**: if
+`time() - pcopbot_last_poll_timestamp_seconds` exceeds 90s — or the metric disappears
+entirely (container crash) — Grafana fires a Discord notification. The entire monitoring
+stack (data source, dashboard, contact point, alert rule) is **provisioned as code** under
+`grafana/provisioning/`, so it reproduces from scratch on any fresh deploy.
 
 ---
 
